@@ -5,7 +5,7 @@ import random
 import time
 import mediapipe
 
-from pygame import Vector2 as Vector2
+from pygame.math import Vector2 as Vector2
 
 mp_drawing = mediapipe.solutions.drawing_utils
 mp_drawing_styles = mediapipe.solutions.drawing_styles
@@ -15,6 +15,7 @@ def lerp(a, b, c):
     return a + (b - a) * c
 
 class GameContainerClass:
+    # Game hierarchy & states
     window = {
         "instance" : None,
         "size" : Vector2(1280, 720)
@@ -43,6 +44,7 @@ class GameContainerClass:
         self.window["instance"] = pygame.display.set_mode(
             (self.window["size"].x, self.window["size"].y)
         )
+
         self.window["instance"].fill((22, 33, 44))
         
         self.camera["instance"] = cv2.VideoCapture(0)
@@ -80,14 +82,12 @@ class GameContainerClass:
                 if event.type == pygame.QUIT:
                     self.running = False
             
-        print("End.")
         pygame.quit()
-
-    
+   
     def render(self):
         self.window["instance"].fill((22, 33, 44))
         
-        _, frame = self.camera["instance"].read()  
+        _, frame = self.camera["instance"].read()
 
         results = self.camera["detector"].process(frame)
 
@@ -97,24 +97,37 @@ class GameContainerClass:
 
         surface.set_alpha(25)
 
-        self.window["instance"].blit(surface, (0, 0)) 
+        self.window["instance"].blit(surface, (0, 0))
 
-        for i in range(0, 2):
-            player = self.components["player" + str(i + 1)]
-            
-            if (results.multi_hand_landmarks != None) and ((i + 1) <= len(results.multi_hand_landmarks)):
-                controller = results.multi_hand_landmarks[i]
-                
-                if controller:
-                    x = (1 - controller.landmark[8].x) * self.window["size"].x
-                    y = controller.landmark[8].y * self.window["size"].y
+        if (results.multi_hand_landmarks != None):
+            for controller in results.multi_hand_landmarks:
+                target = Vector2(
+                    (1 - controller.landmark[8].x) * self.window["size"].x,
+                    controller.landmark[8].y * self.window["size"].y
+                )
+                if (target.x < 0.5 * self.window["size"].x):
+                    self.components["player1"]["target"] = target
+                else:
+                    self.components["player2"]["target"] = target
 
-                    player["target"] = Vector2(x, y)
+        # For each player, update state
+        for i in range(1, 3):
+            # Ensure that hands are detected
+            player = self.components["player" + str(i)]
 
-                    pygame.draw.circle(self.window["instance"], (255, 0, 0), (x, y), 20)
+            pygame.draw.circle(
+                self.window["instance"], 
+                (100, 0, 0), 
+                player["target"], 
+                20
+            )
 
-            #player["slider"].x = 100
-            player["slider"].y = lerp(player["slider"].y, player["target"].y, 0.3)
+            # Interpolate slider towards target
+            player["slider"].y = lerp(
+                player["slider"].y, 
+                player["target"].y, 
+                0.3
+            )
 
             pygame.draw.rect(
                 self.window["instance"],
@@ -123,7 +136,6 @@ class GameContainerClass:
             )
                     
         pygame.display.update()
-
 
 game = GameContainerClass()
 game.load()
