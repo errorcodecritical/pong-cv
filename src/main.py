@@ -1,9 +1,12 @@
+import imp
 import pygame
 import numpy
 import cv2
 import random
 import time
 import mediapipe
+
+import tween
 
 from pygame.math import Vector2 as Vector2
 
@@ -13,6 +16,21 @@ mp_hands = mediapipe.solutions.hands
 
 def lerp(a, b, c):
     return a + (b - a) * c
+
+def map(x, a, b, c, d):
+    return (x - a) * (d - c) / (b - a) + c
+
+# Create interface sequence system
+
+interface = {
+    # Landing screen
+    "menu" : {
+        "landing_title" : pygame.transform.smoothscale(
+            pygame.image.load("img/landing_title.png"),
+            0.5 * Vector2(1000, 340)
+        )
+    }
+}
 
 class GameContainerClass:
     # Game hierarchy & states
@@ -57,13 +75,17 @@ class GameContainerClass:
             min_tracking_confidence = 0.5
         )
 
+
+        self.components["player1"]["target"] = 0.5 * self.window["size"]
+        self.components["player2"]["target"] = 0.5 * self.window["size"]
+
         self.components["player1"]["slider"] = pygame.Rect(
             self.window["size"].x * 0.1,
             self.window["size"].y * 0.5,
             25,
             200
         )
-
+        
         self.components["player2"]["slider"] = pygame.Rect(
             self.window["size"].x * 0.9,
             self.window["size"].y * 0.5,
@@ -71,11 +93,18 @@ class GameContainerClass:
             200
         )
 
+        
+        pygame.display.update()
+
+
     def run(self):
         self.running = True
         
         while self.running:
             self.render()
+
+            for instance in tween.instances:
+                instance.updatez()
 
             # Process events
             for event in pygame.event.get():
@@ -99,6 +128,7 @@ class GameContainerClass:
 
         self.window["instance"].blit(surface, (0, 0))
 
+        # Ensure that at least one hand is detected
         if (results.multi_hand_landmarks != None):
             for controller in results.multi_hand_landmarks:
                 target = Vector2(
@@ -112,23 +142,21 @@ class GameContainerClass:
 
         # For each player, update state
         for i in range(1, 3):
-            # Ensure that hands are detected
             player = self.components["player" + str(i)]
-
+            # Visual aid for controller position
             pygame.draw.circle(
                 self.window["instance"], 
-                (100, 0, 0), 
+                (42, 53, 64), 
                 player["target"], 
                 20
             )
-
             # Interpolate slider towards target
             player["slider"].y = lerp(
                 player["slider"].y, 
                 player["target"].y, 
                 0.3
             )
-
+            # Display player's slider
             pygame.draw.rect(
                 self.window["instance"],
                 (230, 230, 230), 
