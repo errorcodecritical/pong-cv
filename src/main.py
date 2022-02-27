@@ -20,9 +20,27 @@ def lerp(a, b, c):
 def map(x, a, b, c, d):
     return (x - a) * (d - c) / (b - a) + c
 
-def raycastBox(rayOrigin, rayDirection, boundaryMin, boundaryMax):
-    t0 = (boundaryMin - rayOrigin) / rayDirection
-    t1 = (boundaryMax - rayOrigin) / rayDirection
+# Colour refs
+green = (0, 255, 30)
+blue = (0, 0, 128)
+red = (255, 65, 0)
+white = (255, 255, 255)
+
+# vec2 raycastBox(vec3 rayOrigin, vec3 rayDirection, vec3 boundaryMin, vec3 boundaryMax) {
+#     vec3 t0 = (boundaryMin - rayOrigin) / rayDirection;
+#     vec3 t1 = (boundaryMax - rayOrigin) / rayDirection;
+#     vec3 tMin = min(t0, t1);
+#     vec3 tMax = max(t0, t1);
+    
+#     return vec2(
+#         max(max(tMin.x, tMin.y), tMin.z), // near
+#         min(min(tMax.x, tMax.y), tMax.z)  // far
+#     );
+# };
+
+def raycastBox(ray_origin, ray_direction, boundary_min, boundary_max):
+    t0 = (boundary_min[0:2] - ray_origin[0:2]) / ray_direction[0:2]
+    t1 = (boundary_max[0:2] - ray_origin[0:2]) / ray_direction[0:2]
 
     tMin = np.minimum(t0, t1)
     tMax = np.maximum(t0, t1)
@@ -36,11 +54,15 @@ class GameObject:
     transform = None
     geometry = None
     velocity = None
+    visible = None
+    transparency = None
 
-    def __init__(self):
+    def __init__(self, visible = True, transparency = 0):
         self.transform = Transform2D()
         self.geometry = pygame.Surface((0, 0))
         self.velocity = Vector2(0, 0)
+        self.visible = visible
+        self.transparency = transparency
 
 class GameContainerClass:
     # Game hierarchy & states
@@ -57,27 +79,31 @@ class GameContainerClass:
         "player1" : {
             "target" : Vector2(0, 0),
             "tracking" : False,
-            "gettime" : None,
-            "ready" : False
+            "ready" : False,
+            "health" : 100
         },
         "player2" : {
             "target" : Vector2(0, 0),
             "tracking" : False,
-            "gettime" : None,
-            "ready" : False
+            "ready" : False,
+            "health" : 100
         }
     }
     scene = {
-        "slider1" : GameObject(),
-        "slider2" : GameObject(),
+        "slider_player1" : GameObject(),
+        "slider_player2" : GameObject(),
         "ball" : GameObject(),
         "collision" : GameObject()
     }
 
     tick = time.monotonic()
+    
+    game_time = 0
+
+    newgame = True
     running = False
 
-    def load(self):
+    def __init__(self):
         pygame.init()
 
         pygame.display.set_caption('Deec x Pong!')
@@ -101,16 +127,143 @@ class GameContainerClass:
         self.players["player1"]["target"] = 0.5 * self.window["size"]
         self.players["player2"]["target"] = 0.5 * self.window["size"]
 
+    def load_menu(self):
+        self.scene = {
+            "title" : GameObject(),
+            "subtitle" : GameObject(),
+            "credits" : GameObject(),
+            "ready_player1" : GameObject(visible=False),
+            "ready_player2" : GameObject(visible=False),
+            "selector_player1" : GameObject(transparency=0.3),
+            "selector_player2" : GameObject(transparency=0.3),
+            "deec_logo" : GameObject(transparency=0.3),
+        }
 
-        self.scene["slider1"].geometry = pygame.image.load("img/slider.png")
-        self.scene["slider1"].transform = Transform2D(
+        self.scene["title"].geometry = pygame.font.SysFont('arial', 100).render('Deec x Pong', True, green, blue)
+        self.scene["subtitle"].geometry = pygame.font.SysFont('arial', 75).render('50 Anos', True, red, blue)
+        self.scene["credits"].geometry = pygame.font.SysFont('arial', 20).render(
+            'Developed by: Rui Simão & Tobias Marsh-Hulland (Initial version by João Simões)', True, white, None
+        )
+
+        self.scene["ready_player1"].geometry = pygame.font.SysFont('arial', 32).render('READY', True, white, None)
+        self.scene["ready_player2"].geometry = pygame.font.SysFont('arial', 32).render('READY', True, white, None)
+
+        self.scene["selector_player1"].geometry = pygame.image.load("img/bluehand.png")
+        self.scene["selector_player2"].geometry = pygame.image.load("img/redhand.png")
+
+        self.scene["deec_logo"].geometry = pygame.image.load("img/deec50.png")
+
+        self.scene["title"].transform = Transform2D(
+            map(
+                np.array((0.5, 0.1)), 
+                np.array((0, 0)), np.array((1, 1)), 
+                np.array((0, 0)), np.array(self.window["size"])
+            ),
+            (self.scene["title"].geometry.get_size()[0], 0),
+            (0, self.scene["title"].geometry.get_size()[1])
+        )
+
+        self.scene["subtitle"].transform = Transform2D(
+            map(
+                np.array((0.5, 0.3)), 
+                np.array((0, 0)), np.array((1, 1)), 
+                np.array((0, 0)), np.array(self.window["size"])
+            ),
+            (self.scene["subtitle"].geometry.get_size()[0], 0),
+            (0, self.scene["subtitle"].geometry.get_size()[1])
+        )
+
+        self.scene["credits"].transform = Transform2D(
+            map(
+                np.array((0.35, 0.95)), 
+                np.array((0, 0)), np.array((1, 1)), 
+                np.array((0, 0)), np.array(self.window["size"])
+            ),
+            (self.scene["credits"].geometry.get_size()[0], 0),
+            (0, self.scene["credits"].geometry.get_size()[1])
+        )
+
+        self.scene["ready_player1"].transform = Transform2D(
+            map(
+                np.array((0.2, 0.5)), 
+                np.array((0, 0)), np.array((1, 1)), 
+                np.array((0, 0)), np.array(self.window["size"])
+            ),
+            (self.scene["ready_player1"].geometry.get_size()[0], 0),
+            (0, self.scene["ready_player1"].geometry.get_size()[1])
+        )
+
+        self.scene["ready_player2"].transform = Transform2D(
+            map(
+                np.array((0.8, 0.5)), 
+                np.array((0, 0)), np.array((1, 1)), 
+                np.array((0, 0)), np.array(self.window["size"])
+            ),
+            (self.scene["ready_player2"].geometry.get_size()[0], 0),
+            (0, self.scene["ready_player2"].geometry.get_size()[1])
+        )
+
+        self.scene["selector_player1"].transform = Transform2D(
+            map(
+                np.array((0.25, 0.6)), 
+                np.array((0, 0)), np.array((1, 1)), 
+                np.array((0, 0)), np.array(self.window["size"])
+            ),
+            (self.scene["selector_player1"].geometry.get_size()[0] / 2, 0),
+            (0, self.scene["selector_player1"].geometry.get_size()[1] / 2)
+        )
+
+        self.scene["selector_player2"].transform = Transform2D(
+            map(
+                np.array((0.75, 0.6)), 
+                np.array((0, 0)), np.array((1, 1)), 
+                np.array((0, 0)), np.array(self.window["size"])
+            ),
+            (self.scene["selector_player2"].geometry.get_size()[0] / 2, 0),
+            (0, self.scene["selector_player2"].geometry.get_size()[1] / 2)
+        )
+
+        self.scene["deec_logo"].transform = Transform2D(
+            map(
+                np.array((0.9, 0.1)), 
+                np.array((0, 0)), np.array((1, 1)), 
+                np.array((0, 0)), np.array(self.window["size"])
+            ),
+            (self.scene["deec_logo"].geometry.get_size()[0] / 2, 0),
+            (0, self.scene["deec_logo"].geometry.get_size()[1] / 2)
+        )
+
+    def menu_agent(self):
+        for name, player in self.players.items():
+            bounded = 100 > np.linalg.norm(
+                player["target"] - self.scene["selector_" + name].transform.position()
+            )
+
+            player["ready"] = player["tracking"] and bounded
+            self.scene["ready_" + name].visible = player["ready"]
+
+        if (self.players["player1"]["ready"] and self.players["player2"]["ready"]):
+            print("Fuck\n.")
+            self.newgame = False
+            self.load_round()
+
+    def load_round(self):
+        self.scene = {
+            "slider_player1" : GameObject(),
+            "slider_player2" : GameObject(),
+            "ball" : GameObject(),
+            "collision" : GameObject(visible=False)
+        }
+
+        self.scene["slider_player1"].geometry = pygame.image.load("img/slider.png")
+        self.scene["slider_player1"].transform = Transform2D(
             (self.window["size"].x * 0.1, self.window["size"].y * 0.5),
             (25, 0),
             (0, 200)
         )
         
-        self.scene["slider2"].geometry = pygame.image.load("img/slider.png")
-        self.scene["slider2"].transform = Transform2D(
+        self.scene["slider_player2"].geometry = pygame.image.load("img/slider.png")
+        self.scene["slider_player2"].transform = Transform2D(
             (self.window["size"].x * 0.9, self.window["size"].y * 0.5),
             (25, 0),
             (0, 200)
@@ -119,8 +272,8 @@ class GameContainerClass:
         self.scene["collision"].geometry = pygame.image.load("img/target.png")
         self.scene["collision"].transform = Transform2D(
             (0, 0),
-            (30, 0),
-            (0, 30)
+            (300, 0),
+            (0, 300)
         )
 
         self.scene["ball"].geometry = pygame.image.load("img/ball.png")
@@ -129,174 +282,20 @@ class GameContainerClass:
             (50, 0), 
             (0, 50)
         )
-        self.scene["ball"].velocity = Vector2(-80, 10)
 
-    timest1 = time.localtime()
-    def menu(self):
-        self.menu = True
+        self.scene["ball"].velocity = Vector2(-40, 10)
 
-        #Text formatation
-        fontsize = 100
-        subFontSize = 75
-        readyFontSize = 32
-        autorFont = 20
+    def round_agent(self):
+        # For each player, update state
+        for name, player in self.players.items():
+            slider = self.scene["slider_" + name]
 
-        green = (0, 255, 30)
-        blue = (0, 0, 128)
-        red = (255, 65, 0)
-        white = (255, 255, 255)
-
-        fontTitle = pygame.font.SysFont('arial',fontsize)
-        Title = fontTitle.render('Deec x Pong', True, green, blue)
-
-        fontSubTitle = pygame.font.SysFont('arial',subFontSize)
-        SubTitle = fontSubTitle.render('50 Anos', True, red, blue)
-
-        fontReady = pygame.font.SysFont('arial',readyFontSize)
-        readyText = fontReady.render('READY',True, white, None)
-        readyText1 = fontReady.render('READY',True, white, None)
-
-        fontAutor = pygame.font.SysFont('arial',autorFont)
-        AutorText = fontAutor.render('Developed by: Rui Simão & Tobias Marsh-Hulland (Initial version by João Simões)', True, white, None)
-
-        TitleRect = Title.get_rect()
-        SubTitleRect = SubTitle.get_rect()
-        ReadyRect = readyText.get_rect()
-        ReadyRect1 = readyText1.get_rect()
-        AutorRect = AutorText.get_rect()
-
-        TitleRect.x, TitleRect.y = self.window["size"].x * 0.33, self.window["size"].y * 0.15
-        SubTitleRect.x, SubTitleRect.y = self.window["size"].x * 0.43, self.window["size"].y * 0.32
-
-        ReadyRect.x, ReadyRect.y = self.window["size"].x * 0.25, self.window["size"].y * 0.4750
-        ReadyRect1.x, ReadyRect1.y = self.window["size"].x * 0.65, self.window["size"].y * 0.4750
-
-        AutorRect.x, AutorRect.y = self.window["size"].x * 0.01, self.window["size"].y * 0.97
-
-        #Show hands image
-        imgredHand = pygame.image.load('img/redhand.png').convert_alpha()
-        imgblueHand = pygame.image.load('img/bluehand.png').convert_alpha()
-        rectredhand = imgredHand.get_rect()
-        rectbluehand = imgblueHand.get_rect()
-
-        rectredhand.center = (260 // 2, 260 // 2)
-        rectbluehand.center = (260 // 2, 260 // 2)
-
-        rectredhand.x, rectredhand.y =  self.window["size"].x * 0.20, self.window["size"].y * 0.50
-        rectbluehand.x, rectbluehand.y =  self.window["size"].x * 0.60, self.window["size"].y * 0.50
-
-        imgDeec = pygame.image.load('img/landing_title.png').convert_alpha()
-        imgDeec = pygame.transform.scale(imgDeec, (300 * 0.5, 123 * 0.5))
-        DeecRect = imgDeec.get_rect()
-
-    
-        DeecRect.x, DeecRect.y =  self.window["size"].x * 0.85 , self.window["size"].y * 0.02
-
-        while self.menu:
-
-            self.window["instance"].fill((22, 33, 44))
-
-            self.window["instance"].blit(Title, TitleRect)
-            self.window["instance"].blit(SubTitle, SubTitleRect)
-            self.window["instance"].blit(AutorText, AutorRect)
-            self.window["instance"].blit(imgDeec, DeecRect)
-
-            _, frame = self.camera["instance"].read()
-
-            results = self.camera["detector"].process(frame)
-
-            surface = pygame.surfarray.make_surface(
-                np.rot90(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+            # Interpolate slider towards target
+            slider.transform.components[2][1] = lerp(
+                slider.transform.components[2][1], 
+                player["target"].y, 
+                0.3
             )
-
-            surface.set_alpha(25)
-
-            self.window["instance"].blit(surface, (0, 0))
-
-            if (results.multi_hand_landmarks != None):
-                for controller in results.multi_hand_landmarks:
-    
-                    target = Vector2(
-                        (1 - controller.landmark[8].x) * self.window["size"].x,
-                        controller.landmark[8].y * self.window["size"].y
-                    )
-                    if (target.x < 0.5 * self.window["size"].x):
-                        self.players["player1"]["target"] = target
-                    else:
-                        self.players["player2"]["target"] = target
-
-            # For each player, update state
-            for i in range(1, 3):
-                # Ensure that hands are detected
-                player = self.players["player" + str(i)]
-
-                pygame.draw.circle(
-                    self.window["instance"], 
-                    (100, 0, 0), 
-                    player["target"], 
-                    20
-                )
-
-            if (results.multi_hand_landmarks != None):
-                #print('len land= {}'.format(len(results.multi_hand_landmarks)))
-                self.timeend = time.localtime(time.time())
-                
-                pose_p1 = self.players["player1"]["target"]
-                pose_p2 = self.players["player2"]["target"]
-
-                # ready player one
-                if self.players["player1"]["gettime"]:
-                    if rectredhand.collidepoint(pose_p1):
-
-                        self.players["player1"]["gettime"] = False
-                        self.timest = time.localtime(time.time())
-
-                else:
-                    if rectredhand.collidepoint(pose_p1):
-                    #texto contador com som
-                        if self.timeend.tm_sec - self.timest.tm_sec  >= 3:
-                            self.players["player1"]["ready"] = True
-                        else:
-                            print('PLayer1: Ready in {}' .format(self.timeend.tm_sec - self.timest.tm_sec))
-                        
-                        self.window["instance"].blit(readyText, ReadyRect) 
-                            
-
-                    else:
-                        self.players["player1"]["gettime"] = True
-
-                #ready player two
-                if self.players["player2"]["gettime"]:
-                    if rectbluehand.collidepoint(pose_p2):
-
-                        self.players["player2"]["gettime"] = False
-                        self.timest1 = time.localtime(time.time())
-            
-                else:
-                    if rectbluehand.collidepoint(pose_p2):
-                    #texto contador com som
-                        if self.timeend.tm_sec - self.timest1.tm_sec  >= 3:
-                            self.players["player2"]["ready"] = True
-                        else: 
-                            print('PLayer2: Ready in {}' .format(self.timeend.tm_sec - self.timest1.tm_sec))
-
-                        self.window["instance"].blit(readyText1, ReadyRect1)
-
-                    else:
-                        self.players["player2"]["gettime"] = True
-           
-                if self.players["player1"]["ready"] and self.players["player2"]["ready"]:
-                    self.menu = False
-                    self.multiplayer = True
-
-                if self.players["player1"]["ready"] or self.players["player2"]["ready"]: 
-                    if len(results.multi_hand_landmarks) == 1:
-                        self.menu = False
-                    
-            self.window["instance"].blit(imgredHand, rectredhand)
-            self.window["instance"].blit(imgblueHand, rectbluehand)
-            self.window["instance"].blit(surface, (0, 0))
-            pygame.display.update()
 
     def run(self):
         self.running = True
@@ -305,41 +304,15 @@ class GameContainerClass:
         while self.running:
             delta = time.monotonic() - self.tick
             self.tick = self.tick + delta
-
-            # For every object in the scene, do physics magic
-            # ball = self.scene["ball"]
-            # for object in self.scene.values():
-            #     if object == ball or object == self.scene["slider2"]:
-            #         continue
-
-            #     # Convert ball position to object space
-            #     ortho = Transform2D(
-            #         (0, 0),
-            #         object.transform.right() / np.linalg.norm(object.transform.right()),
-            #         object.transform.up() / np.linalg.norm(object.transform.up())
-            #     )
-
-            #     origin_t = ortho.components.dot(ball.transform.components[2] - object.transform.components[2])
-            #     origin = np.array((origin_t[0], origin_t[1]))
-            #     direction_t = ortho.components.dot(np.array((ball.velocity[0], ball.velocity[1], 0)))
-            #     direction = np.array((direction_t[0], direction_t[1]))
-
-            #     boundary_min = object.transform.position() - 0.5 * object.transform.size()
-            #     boundary_max = object.transform.position() + 0.5 * object.transform.size()
-  
-            #     near, far = raycastBox(origin, direction, boundary_min, boundary_max)
-
-            #     if (near < far):
-            #         hit = origin_t + near * direction_t
-                    
-            #         print(hit)
-            #         #self.scene["collision"].transform = Transform2D(np.linalg.inv(ortho.components).dot(hit))
-
-            #         #print(np.linalg.inv(ortho.components).dot(hit))
-
-            self.scene["ball"].transform = self.scene["ball"].transform + self.scene["ball"].velocity * delta
-
+            self.game_time += delta
+           
             self.event()
+
+            if self.newgame:
+                self.menu_agent()
+            else:
+                self.round_agent()
+
             self.render()
             
         pygame.quit()
@@ -378,18 +351,6 @@ class GameContainerClass:
                     0.4
                 )
 
-        # For each player, update state
-        for i in range(1, 3):
-            player = self.players["player" + str(i)]
-            slider = self.scene["slider" + str(i)]
-
-            # Interpolate slider towards target
-            slider.transform.components[2][1] = lerp(
-                slider.transform.components[2][1], 
-                player["target"].y, 
-                0.3
-            )
-
         # Process events
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -406,6 +367,22 @@ class GameContainerClass:
         screen.fill((22, 33, 44))
         screen.blit(surface, (0, 0))
 
+        # For every object in the scene, render one by one
+        for object in self.scene.values():
+            if object.visible:
+                position = object.transform.position()
+                size = object.transform.size()
+                angle = np.arctan2(
+                    object.transform.right()[1], 
+                    object.transform.right()[0]
+                )
+                
+                render = pygame.transform.scale(object.geometry, size)
+                render = pygame.transform.rotate(render, angle)
+                render.set_alpha(255 * (1 - object.transparency))
+
+                screen.blit(render, position - 0.5 * np.array((render.get_width(), render.get_height())))
+
         for i in range(1, 3):
             player = self.players["player" + str(i)]
 
@@ -415,24 +392,10 @@ class GameContainerClass:
                 pointer = pygame.transform.smoothscale(pointer, (100, 100))
                 pointer.set_alpha(30)
                 screen.blit(pointer, player["target"] - 0.5 * Vector2(pointer.get_width(), pointer.get_height()))
-
-        # For every object in the scene, render one by one
-        for object in self.scene.values():
-            position = object.transform.position()
-            size = object.transform.size()
-            angle = np.arctan2(
-                object.transform.right()[1], 
-                object.transform.right()[0]
-            )
-            
-            render = pygame.transform.scale(object.geometry, size)
-            render = pygame.transform.rotate(render, angle)
-            screen.blit(render, position - 0.5 * np.array((render.get_width(), render.get_height())))
         
         # Maybe don't accidentally delete this
         pygame.display.update()
 
 game = GameContainerClass()
-game.load()
-game.menu()
+game.load_menu()
 game.run()
